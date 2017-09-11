@@ -1,0 +1,868 @@
+<!DOCTYPE HTML> 
+<head>
+  <meta charset="utf-8">
+  <title>Merge Binomial Heaps</title>
+	<link rel="stylesheet" href="style.css">
+</head>
+<body>  
+ <script>
+var canva;
+var context;
+var CIRCLE_D = 24; //диаметр узлов
+var NODE_COLOR="#a496f2"; //цвет узлов
+var LINE_COLOR = "#555"; //цвет линий/границ по умолчанию
+var NODE_SPACING = 9; //минимальное расстояние между узлами
+var TREE_SPACING = 20; //расстояние между деревьями
+var HEAP_INDENT = 170; 
+var CHECK_TIME =200; //время проверки не стоит ли функция на паузе
+var PART_J=0.06; //коэффициенты, используются при анимации перемещения
+var PART_M=0.04;
+var Q=0.88; 
+var drawTime=20; //время "обновления" холста
+var stepTime=50*drawTime; //время между шагами 
+var heapC1; //копия heap1
+var heapC2; //копия heap2
+var heap1; //исходные кучи 
+var heap2;
+var heap3; //результат слияния
+var isPaused=true; // ставит/снимает с паузы
+var isStopped = true; //останавливает отрисовку
+var finishAnim = true; // завершает шаг анимации
+
+window.onload = function () {
+	   switchButtons(false);
+	   document.getElementById("chSp").value=35-drawTime;
+	   changeSp();
+	   canva = document.getElementById("canva");
+	   context = canva.getContext("2d"); 
+	   context.lineWidth=2;
+	   context.font="12px arial";
+	   context.textAlign="center";
+	context.textBaseline = "middle";
+}
+
+function merge(bin1,bin2){ //соединяет 2 кучи,ничего не рисует
+	if (bin2.isEmpty()){
+		return bin1;
+	}
+	if (bin1.isEmpty()){
+		return bin2;
+	}
+	var res = bin1.roots.concat(bin2.roots);
+	res.sort(compareByLvl);
+	var flag=true;
+	var i;
+	while(flag){
+		flag=false;
+		for( i=0;i<res.length-1;i++){
+			if(res[i].level==res[i+1].level){
+				if((i>=(res.length-2))||(res[i+1].level!=res[i+2].level)){
+					if(res[i].root.key<res[i+1].root.key){
+						res[i].join(res[i+1]);
+						res.splice(i+1,1);
+					}else{
+						res[i+1].join(res[i]);
+						res.splice(i,1);
+					}
+					flag=true;
+					break;
+				}else{
+					continue;	
+				}
+			}
+		
+		}
+	}
+	return new BinHeap(res);	
+}
+
+function compareByLvl(n1,n2){//сравнивает деревья по порядку, потом по минимальному ключу	
+	if (n1.level>n2.level){
+		return 1;
+	}else if(n1.level<n2.level){
+		return -1;
+	}else{
+		if(n1.root.key>n2.root.key){
+			return -1;
+		}else if(n1.root.key<n2.root.key){
+			return 1;
+		}else{
+		return 0;
+		}
+	}
+}
+
+function isNear(th1,th2){//возвращает true если деревья находятся достаточно близко
+	var epsilon=0.7;
+	if((th1.root.posX-th2.root.posX)*(th1.root.posX-th2.root.posX)+(th1.root.posY-th2.root.posY)*(th1.root.posY-th2.root.posY)<epsilon*epsilon){
+		return true;
+	}else{
+		return false;
+	}
+}
+
+function switchButtons(enable){// устанавливает/снимает атрибут disabled у кнопок start/pause, step и finish
+if(enable){
+	document.getElementById("result").removeAttribute("disabled");
+	document.getElementById("pause").removeAttribute("disabled");
+	document.getElementById("step").removeAttribute("disabled");
+	}else{
+	document.getElementById("result").setAttribute("disabled","disabled");
+	document.getElementById("pause").setAttribute("disabled","disabled");
+	document.getElementById("step").setAttribute("disabled","disabled");
+	}
+}
+
+function newHeaps(){ //создает и рисует новые кучи
+	isStopped=true;
+	isPaused=true;
+	finishAnim=true;
+	context.clearRect(0, 0, canva.width, canva.height);
+	heap1.posY=25;
+	heap1.setCoords();
+
+	heap1.posX=(canva.width-heap1.sizeX)/2;
+	heap1.setCoords();
+
+	heap2.posY=heap1.posY+2*HEAP_INDENT;
+	heap2.setCoords();
+	heap2.posX=(canva.width-heap2.sizeX)/2;
+	heap2.setCoords();
+	heap3=new BinHeap(new Array);
+
+	heap3.posY=heap1.posY+HEAP_INDENT;
+	heap3.posX=(canva.width-heap1.sizeX-heap2.sizeX)/2;
+	
+	heap2.setCoords();
+
+	heapC1=heap1.copy();
+	heapC2=heap2.copy();
+	document.getElementById("pause").value="start";
+	switchButtons(true);
+	drawHeap(heap1);
+	drawHeap(heap2);
+
+}
+
+//обьекты
+function Rect(l,t,r,b,w,h){ //прямоугольники для очистки
+	this.top=t-CIRCLE_D/2-2;
+	this.left=l;
+	this.width = w||(r-l);
+	this.heigth = h||(b-t);
+	this.clear= function(){
+		context.clearRect(this.left,this.top,this.width,this.heigth+4);
+		//context.strokeRect(this.left,this.top,this.width,this.heigth+4);
+	}
+	
+}
+
+function Node(k){ //узел кучи
+	this.hidden=false; //скрывает узел и все дочерние узлы , при рисовании дерева
+	this.key=k;
+	this.level=0; //порядок поддерева
+	this.child=[]; //дочерние узлы
+	this.parent=null; //родительский узел
+	this.posX=0; 
+	this.posY=0;
+	this.lineColor="#000";
+	this.setCoords=function (){ //устанавливает координаты всех дочерних узлов
+		var tempX=this.posX;
+		var ch ;
+		for(var i=this.child.length-1; i>=0; i--){			
+			ch=this.child[i];
+			ch.posX = tempX;
+			ch.posY = this.posY + (CIRCLE_D + NODE_SPACING);
+			if(ch.level==0 || ch.level==1){
+				ch.sizeX=CIRCLE_D;
+			}else{
+				ch.sizeX = Math.pow(2,ch.level-1) * CIRCLE_D + (Math.pow(2,ch.level-1) - 1)* NODE_SPACING;
+			}
+			ch.sizeY = (ch.level+1)*CIRCLE_D+ ch.level*NODE_SPACING;
+			tempX -= ch.sizeX + NODE_SPACING;
+			//achtung рекурсия
+			ch.setCoords();
+		}
+		
+	}
+	this.copy = function(){ //создает полностью независимую копию
+		var obj = new Node(this.key);
+		obj.level = this.level;
+		obj.parent = this.parent;
+		obj.posX = this.posX;
+		obj.posY= this.posY;
+		var tChild = new Array();
+		for(var i =0; i<this.child.length; i++){
+			tChild[i]= this.child[i].copy();
+		}
+		obj.child=tChild;
+		obj.hidden=this.hidden;
+		return obj;
+	}
+}
+
+function BinHeap(arr){ //биномиальная куча arr-массив биномиальных деревьев
+	this.roots=arr; //
+	this.posX=0;
+	this.posY=0;
+	this.sizeX=0;
+	this.sizeY=0;
+	this.isEmpty = function(){ //возращает true если в куче не осталось деревьев, иначе false
+		if(this.roots.length==0){
+			return true;
+		}else{
+			return false;
+		}
+	}
+	this.add = function(node){ //создаёт кучу из однго узла и соединяет с текущей
+		var roots2 = new BinHeap(new Array(new BinTree(node)));
+		return merge(this,roots2);
+	}
+	this.setCoords= function(){ //устанавливает абсолютные координаты для отображения всех деревьев и узлов в куче
+		var r = this.roots;
+		var tree;
+		var offsetX=0;
+		var max=0;
+		for(var i=0; i<r.length;i++ ){
+			tree=r[i];
+			tree.posX = offsetX + this.posX;
+			tree.posY = this.posY;
+			tree.setCoords();
+			if(tree.sizeY>max){
+				max=tree.sizeY;
+			}
+			
+			offsetX += tree.sizeX + TREE_SPACING;
+			
+		}
+		this.sizeX=offsetX;
+		this.sizeY=max;
+	}	
+	this.copy = function(){ //создает полностью независимую копию
+		var tRoots = new Array();
+		for (var i=0;i<this.roots.length;i++){
+			tRoots[i]=this.roots[i].copy();
+		}
+		var obj = new BinHeap(tRoots);
+		obj.posX=this.posX;
+		obj.posY=this.posY;
+		obj.sizeX=this.sizeX;
+		obj.sizeY=this.sizeY;
+		return obj;
+	}
+
+}
+
+function BinTree(node){ //биномиальное дерево
+	this.hidden=false; //скрывает дерево при рисовании кучи (по умолчанию не скрывает)
+	if(node.level==0){
+		this.posX=node.posX;
+		this.sizeX= CIRCLE_D;
+		this.sizeY = CIRCLE_D;
+	}else{
+		this.posX=node.posX-(Math.pow(2,node.level-1) * CIRCLE_D + (Math.pow(2,node.level-1) - 1)* NODE_SPACING);
+		this.sizeX = Math.pow(2,node.level-1) * CIRCLE_D + (Math.pow(2,node.level-1) - 1)* NODE_SPACING;
+		this.sizeY = (node.level+1)*CIRCLE_D+ node.level*NODE_SPACING;
+	}
+	this.posY=node.posY;
+	this.root=node;
+	this.level=node.level; //порядок дерева ln(N) N - кол-во узлов в дереве ln двоичный логарифм
+	this.join=function(tree){	//обьединяет деревья	
+		this.root.level=this.root.level +1;
+		this.level=this.level +1;
+		this.root.child.unshift(tree.root);
+		tree.root.parent=this.root;
+	}
+	
+	this.setCoords= function(){ //устанавливает координаты всех узлов в дереве
+		if (this.level==0){
+			this.sizeX= CIRCLE_D;
+			this.sizeY = CIRCLE_D;
+			this.root.posX = this.posX + CIRCLE_D;
+			this.root.posY = this.posY;
+		}else{
+			this.sizeX = Math.pow(2,this.level-1) * CIRCLE_D + (Math.pow(2,this.level-1) - 1)* NODE_SPACING;
+			this.sizeY = (this.level+1)*CIRCLE_D + this.level * NODE_SPACING;
+			this.root.posX = this.posX + this.sizeX;
+			this.root.posY = this.posY;
+			this.root.setCoords();
+		}
+	}
+
+	this.copy = function(){ //создает полностью независимую копию
+		var obj = new BinTree(this.root.copy());
+		obj.posX=this.posX;
+		obj.posY=this.posY;
+		obj.sizeX=this.sizeX;
+		obj.sizeY=this.sizeY;
+		obj.level=this.level;
+		obj.hidden=this.hidden;
+		return obj;
+	}	
+	
+}
+
+function drawHeap(heap){//рисует кучу
+
+	if(!heap.isEmpty()){
+		var r=heap.roots;
+		var i;
+		
+		var first;
+		var last;
+		for(i=0;i<r.length;i++){
+			if(!r[i].hidden){
+				first=i;
+				break;
+			}
+		}
+		if(first === undefined){
+			return;
+		}
+		for(i=r.length-1;i>=0;i--){
+			if(!r[i].hidden){
+				last=i;
+				break;
+			}
+		}
+		context.beginPath();
+		context.moveTo(r[first].root.posX,r[first].root.posY);
+		context.lineTo(r[last].root.posX,r[last].root.posY);
+		context.stroke();
+		context.closePath();
+		
+		for(i=first;i<=last;i++){
+			if(!r[i].hidden){
+				drawTree(r[i]);
+			}
+		}
+	}
+}
+
+function drawTree(tree){//рисует дерево
+		tree.root.lineColor=LINE_COLOR;
+		drawSkel(tree.root);
+		drawNode(tree.root);	
+	
+}
+
+function drawNode(node){ //рисует узел
+	 context.beginPath();
+    context.arc(node.posX, node.posY, CIRCLE_D/2, 0, 2*Math.PI, false);
+    context.fillStyle = NODE_COLOR;//'#a496f2';
+    context.fill();
+    context.strokeStyle = node.lineColor;
+    context.stroke();
+	 context.fillStyle = '#000';
+	context.fillText(node.key,node.posX, node.posY);
+	context.strokeStyle = LINE_COLOR;
+	}
+
+function drawSkel(node){ //рисует каркас из линий а сверху узлы
+	context.beginPath();
+	for(var i =0; i<node.child.length;i++){
+		if(!node.child[i].hidden){
+			node.child[i].lineColor=LINE_COLOR;	
+			context.moveTo(node.posX,node.posY);
+			context.lineTo(node.child[i].posX,node.child[i].posY);
+			context.stroke();
+			//achtung рекурсия
+			drawSkel(node.child[i]);
+			drawNode(node.child[i]);
+		}
+	}
+}
+
+
+//добавление деревьев в heap3 из heap1 или heap2
+
+function mergeShow(){ //отправляет одно дерево в heap3
+	if(finishAnim){ //без анимации
+		if(!((heap1.isEmpty())&&(heap2.isEmpty()))){
+			var heap=chooseHeap();
+			heap.roots[0].hidden=false;	
+			heap3.roots.push(heap.roots.shift());	//				
+			heap3.setCoords();//	
+			context.clearRect(0, 0, canva.width, canva.height);
+			drawHeap(heap3);
+			drawHeap(heap1);
+			drawHeap(heap2);	
+		}else{
+			findTreeToJoin(); //переходим к следующему шагу
+		}
+	}else{ //с анимацией
+		if((!isPaused)&(!isStopped)){	
+			if(!((heap1.isEmpty())&&(heap2.isEmpty()))){
+				var heap=chooseHeap();
+				var startT;
+				var finishT;
+				startT=heap.roots[0].copy();
+				heap3.roots.push(heap.roots.shift());	 //
+				heap3.setCoords(); //
+				finishT = heap3.roots[heap3.roots.length-1];
+				setTimeout(moveTreeMerge,stepTime/2,startT,finishT);		
+			}else{
+				setTimeout(findTreeToJoin,stepTime);
+			}
+		}else if(!isStopped){
+			setTimeout(mergeShow,CHECK_TIME);
+		}
+	}
+	
+	function chooseHeap(){
+			if(heap1.isEmpty()){
+				return heap2;
+			}else if(heap2.isEmpty()){
+				return heap1;
+			}else{
+				if(compareByLvl(heap1.roots[0],heap2.roots[0])<0){
+					return heap1;
+				}else{
+					return heap2;
+				}
+			}		
+	}
+ 	
+}
+
+function moveTreeMerge(start, finish) { //p  рисует перемещение дерева в heap3
+ 
+	if((!isStopped)){
+		start.hidden=true;
+		finish.hidden=true;
+		temp=start;
+		var rX = finish.posX - start.posX;
+		var rY = finish.posY - start.posY;
+		var dx = rX*PART_M;//приращение
+		var dy = rY*PART_M;
+		var heap; //куча которую нужно перерисовывать (помимо heap3)
+		var rect; //очищаемая область
+		if(dy>0){
+			heap=heap1;
+			rect=new Rect(heap3.posX,heap.posY,Math.max(heap3.sizeX+heap3.posX,heap.sizeX+heap.posX),heap3.sizeY+heap3.posY);
+		}else{
+			heap=heap2;
+			rect=new Rect(heap3.posX,heap3.posY,Math.max(heap3.sizeX+heap3.posX,heap.sizeX+heap.posX),heap.sizeY+heap.posY);
+		}
+		drawMoveMerge();
+	}
+	
+	function drawMoveMerge(){//запускает саму себя пока дерево не встанет на место
+	if(!isStopped){
+		if(finishAnim){//рисуем результат шага
+			context.clearRect(0,0,canva.width,canva.height);
+			finish.hidden=false;
+			drawHeap(heap3);
+			drawHeap(heap1);
+			drawHeap(heap2);
+			
+		}else{
+			if(!isPaused){
+				rect.clear();
+				if((!isNear(temp,finish))){
+					dx*=1-PART_M* Q; //немного замедляем движение
+					dy*=1-PART_M* Q;
+					temp.posX+=dx;
+					temp.posY+=dy;
+					temp.setCoords();
+					
+					drawHeap(heap);
+					drawTree(temp);
+					drawHeap(heap3);
+					setTimeout(drawMoveMerge,drawTime,temp,finish,dx,dy);
+				}else{
+					finish.hidden=false;
+					drawHeap(heap);
+					drawHeap(heap3);
+					mergeShow();
+				}
+			}else{//пауза
+				setTimeout(drawMoveMerge,CHECK_TIME,temp,finish,dx,dy);
+			}	
+		}	
+	 
+	}
+ 	}
+}
+
+
+//соединение деревьев с одинаковым порядком
+function findTreeToJoin(){ //соединяет 2 дерева в heap3 
+	if(!isStopped){
+		if(isPaused){
+			setTimeout(findTreeToJoin,CHECK_TIME);
+		}else{
+			context.clearRect(0, 0, canva.width, canva.height);
+			drawHeap(heap3);
+			var index=-1; //индекс 1го из 2х одинаковых деревьев
+			var r=heap3.roots;
+			for( var i=0;i<r.length-1;i++){ //ищем одинаковые по размеру деревья слева-направо
+					if(r[i].level==r[i+1].level){ 
+						if((i<r.length-2)&&(r[i+1].level==r[i+2].level)){ //если в куче 3 дерева с одинаковым размером
+							index=i+1;
+							break;
+						}else{
+							index=i;
+							break;
+						}
+					}
+			}
+			if(index!=-1){ 
+			
+				var tree1=r[index];
+				var tree2=r[index+1];
+				
+				tree1.root.lineColor="red";
+				tree2.root.lineColor="red";
+				drawNode(tree1.root);
+				drawNode(tree2.root);
+				
+				if(tree1.root.key<tree2.root.key){
+					index=index+1;
+				}else{
+					var tr = tree1;
+					tree1=tree2;
+					tree2=tr;
+				}
+				if(finishAnim){
+					showCompareKeys(tree1.root,tree2.root);
+				}else{		
+					setTimeout(showCompareKeys,stepTime,tree1.root,tree2.root);
+				}
+				
+			}else{//алгоритм завершен
+				context.clearRect(0, 0, canva.width, canva.height);
+				heap3.setCoords();
+				drawHeap(heap3);	
+				switchButtons(false);		
+			}
+		}
+	}	
+	function showCompareKeys(node2,node1){//p сравнивает ключи в соединаемых деревьях
+		if(!isStopped){
+			if(!finishAnim){ //с анимацией
+				if(!isPaused){
+					node2.lineColor="blue";
+					node1.lineColor="red";
+					drawNode(node1);
+					drawNode(node2);
+
+					var startT= new Array(tree2.copy());
+					for(var i=0, j=1;i<r.length;i++){
+						if(i!=index){			
+							startT[j]=r[i].copy();
+							j++;
+						}
+					}
+					tree1.join(tree2);
+				
+					r.splice(index,1);
+				
+					heap3.setCoords();
+					var tree1F = tree1.copy();
+					var finT = new Array(new BinTree(tree2.root));
+					for(var i=0, j=1;i<r.length;i++,j++){
+						finT[j]=r[i];
+					}
+					setTimeout(moveTreeJoin,stepTime,startT,finT);
+					
+				}else{ //пауза
+					setTimeout(showCompareKeys,CHECK_TIME,node2,node1);
+				}
+			}else{ //без анимации
+				tree2.hidden=false;
+				tree1.hidden=false;
+				tree1.join(tree2);
+				r.splice(index,1);
+				heap3.setCoords();
+				context.clearRect(0, 0, canva.width, canva.height);
+				drawHeap(heap3);
+				//
+				node2.lineColor="blue";
+				node1.lineColor="red";
+				drawNode(node1);
+				drawNode(node2);	
+				//
+			}	
+		}
+	}
+}
+
+function moveTreeJoin(start, finish) {//p рисует перемещение деревьев на свои места 
+	//start,finish -массивы начальных/конечных деревьев (разница между ними только в кординатах)
+		if(!isStopped){
+			var dx = new Array();
+			var dy = new Array();
+			var temp=new Array();
+			var rect= new Rect(heap3.posX,heap3.posY,0,0,heap3.sizeX+TREE_SPACING+CIRCLE_D,heap3.sizeY);//очищаемая область
+			for(var i=0; i<start.length;i++){	
+				start[i].hidden=true;
+				start[i].root.hidden=true;
+				finish[i].root.hidden=true;
+				finish[i].hidden=true;
+				temp[i] = start[i].copy();
+		
+				dx[i] = (finish[i].root.posX - start[i].root.posX)*PART_J;
+				dy[i] = (finish[i].root.posY - start[i].root.posY)*PART_J;
+			}
+			drawMoveJoin();
+		}
+
+
+
+	function drawMoveJoin(){//p отрисовка перемещения дерева
+	if(!isStopped){
+		if(finishAnim){ 
+			for(var i =0;i<finish.length;i++){
+				finish[i].hidden=false;
+				finish[i].root.hidden=false;
+			}
+			//rect.clear();
+			context.clearRect(0, 0, canva.width, canva.height);
+			heap3.setCoords();
+			drawHeap(heap1);
+			drawHeap(heap2);
+			drawHeap(heap3);		
+		}else{
+			if(!isPaused){
+				var flag=false;
+				//context.clearRect(0, 0, canva.width, canva.height);
+				rect.clear();
+				context.beginPath();
+				context.moveTo(temp[1].root.posX,temp[1].root.posY);
+				context.lineTo(temp[temp.length-1].root.posX,temp[temp.length-1].root.posY);
+				context.stroke();
+				context.closePath();
+				
+				for(var i=0;i<temp.length;i++){
+					if(!isNear(temp[i],finish[i])){
+						dx[i]*=1-PART_J* Q;
+						dy[i]*=1-PART_J* Q;
+						flag=true;
+						temp[i].posX+=dx[i];
+						temp[i].posY+=dy[i];
+						temp[i].setCoords();
+				
+						drawTree(temp[i]);
+			
+					}else{
+						drawTree(temp[i]);
+					}
+				}
+				drawHeap(heap3);
+			
+				if(flag){	
+					setTimeout(drawMoveJoin,drawTime);
+				}else{
+					for(var i =0;i<finish.length;i++){
+						finish[i].hidden=false;
+						finish[i].root.hidden=false;
+						
+					}
+					//context.clearRect(0, 0, canva.width, canva.height);
+					rect.clear();
+					heap3.setCoords();
+					drawHeap(heap3);		
+					findTreeToJoin();
+				}	
+			}else{//пауза
+				setTimeout(drawMoveJoin,CHECK_TIME);
+			}
+		}
+
+	}
+	}
+}
+
+
+// onclick/oninput listeners
+
+function sizedHeaps(){  //кнопка fix-sized heaps
+/*isStopped=true;
+	isPaused=true;
+	finishAnim=true;*/
+	var s1=document.getElementById("heap1").value;
+	var s2=document.getElementById("heap2").value;
+	
+	heap1 = new BinHeap(new Array(new BinTree(new Node(Math.floor(Math.random()*99)))));
+	heap2 = new BinHeap (new Array(new BinTree(new Node(Math.floor(Math.random()*99)))));
+	
+	for (var i =1 ; i<s1; i++){
+		heap1=heap1.add(new Node(Math.floor(Math.random()*99)));	
+	}
+	for (var i =1 ; i<s2; i++){
+		heap2=heap2.add(new Node(Math.floor(Math.random()*99)));
+	}
+	newHeaps();
+}
+
+function randomHeaps(){  //кнопка random heaps
+	
+	var s1=Math.floor(Math.random()*31)+1;
+	var s2=Math.floor(Math.random()*31)+1;;
+	document.getElementById("heap1").value=s1;
+	document.getElementById("heap2").value=s2;
+	onChangeSize1();
+	onChangeSize2();
+	heap1 = new BinHeap(new Array(new BinTree(new Node(Math.floor(Math.random()*99)))));
+	heap2 = new BinHeap (new Array(new BinTree(new Node(Math.floor(Math.random()*99)))));
+
+	for (var i =1 ; i<s1; i++){
+		heap1=heap1.add(new Node(Math.floor(Math.random()*99)));	
+	}
+	for (var i =1 ; i<s2; i++){
+		heap2=heap2.add(new Node(Math.floor(Math.random()*99)));
+	}
+	newHeaps();
+}
+
+function Pause(){ //кнопка start/pause
+	if(finishAnim){//запуск анимации после завершения шага, либо начало анимации
+		document.getElementById("pause").value="pause";
+		finishAnim=false;
+		isPaused=false;
+		isStopped=false;
+		mergeShow();
+	}else{ 
+		isPaused = !isPaused;
+		if(isPaused){
+			document.getElementById("pause").value="start";
+		}else{
+			document.getElementById("pause").value="pause";
+		}
+		
+	}
+}
+
+function Result(){ //кнопка finish
+/*останавливает анимацию и рисует результат слияния копий изначальных куч heap1 и heap2*/
+	isStopped=true;
+	finishAnim=true;
+	isPaused=true;
+	document.getElementById("pause").value="start";
+	
+	var x=heap3.posX;
+	var y = heap3.posY;
+	heap1=new BinHeap(new Array());
+	heap2=new BinHeap(new Array());
+	heap3=merge(heapC1,heapC2);
+	heap3.posX=x;
+	heap3.posY=y;
+	heap3.setCoords();
+//	setTimeout(drawRes,drawTime);
+	drawRes();
+	
+	function drawRes(){
+		context.clearRect(0, 0, canva.width, canva.height);
+		drawHeap(heap3);
+		switchButtons(false);
+	}
+}
+
+function arrayHeaps(){ //кнопка array heaps
+
+	var heapArr1=document.getElementById("heapArr1");
+	var heapArr2=document.getElementById("heapArr2");
+	
+	var arr1=heapArr1.value.split(',');
+	var arr2=heapArr2.value.split(',');
+	
+	heap1=new BinHeap(new Array());
+	heap2=new BinHeap(new Array());
+	var nodeK;
+	var j=0;
+	for(var i=0;(i<arr1.length)&&(j<31);i++){
+		nodeK=parseInt(arr1[i],10);
+		if(nodeK==nodeK){
+			heap1=heap1.add(new Node(nodeK));
+			j++;
+		}
+	}
+	var k=0;
+	for(var i=0;(i<arr2.length)&&(k<31);i++){
+		nodeK=parseInt(arr2[i],10);
+		if(nodeK==nodeK){
+			heap2=heap2.add(new Node(nodeK));
+			k++;
+		}
+	}
+	
+	if(j==0){
+		heapArr1.setAttribute("required","required");
+	}else{
+		heapArr1.removeAttribute("required");
+	}
+	if(k==0){
+		heapArr2.setAttribute("required","required");
+	}else{
+		heapArr2.removeAttribute("required");
+	}	
+	
+	if(j!=0&&k!=0){
+		newHeaps();
+	}
+
+}
+
+function changeSp(){ //ползунок скорости
+	drawTime=35-document.getElementById("chSp").value;
+	stepTime=drawTime*50;
+	document.getElementById("spValue").value=document.getElementById("chSp").value;
+}
+function onChangeSize1(){ //ползунки размера
+	document.getElementById("szValue1").value=document.getElementById("heap1").value;
+}
+function onChangeSize2(){
+	document.getElementById("szValue2").value=document.getElementById("heap2").value;
+}
+function Step(){ //кнопка step
+	isPaused=false;
+	isStopped=false;
+	document.getElementById("pause").value="start";
+	if(finishAnim){
+		mergeShow();	
+	}else{
+		finishAnim=true;
+	}
+}
+</script>
+ 
+<div id="container">
+	<form>	
+		<div>
+			<span>
+				<input type="button" onclick="sizedHeaps()" value="fix-sized heaps" title="выберите размер куч с помощью ползунков">
+				<input type="text"  id="szValue1" value="16" readonly class="readonly">
+				<input type="range" min="1" max = "31" step="1"  id="heap1" oninput="onChangeSize1()" class="heapSize" title="размер 1й кучи">
+				<input type="text" id="szValue2" value="16"  readonly class="readonly">
+				<input type="range" min="1" max = "31" step="1"  id="heap2" oninput="onChangeSize2()" class="heapSize" title="размер 2й кучи">
+			</span>
+			<span>
+				<input type="button" onclick="randomHeaps()" value="random heaps" title="создать новые кучи случайного размера">
+			</span>
+		</div>
+		<div>
+			<span>
+				<input type="button" onclick="arrayHeaps()" value="array heaps" title="введите набор целых чисел в поля (учитываются только первые 31 число)">
+				<input type="text" id="heapArr1" placeholder="1,3,5,7,9" title="1-я куча">
+				<input type="text" id="heapArr2" placeholder="0,2,4,6,8" title="2-я куча">
+			
+			</span>
+			<span id="controlButttons">
+				<input type="button" onclick="Pause()" id="pause" value="start">	
+				<input type="button" onclick="Step()" value="step" id="step">
+				<input type="button" onclick="Result()" value="finish" id="result" >
+			</span>
+			<span>
+				speed:
+				<input type="text" id="spValue" value="15" readonly class="readonly">
+				<input type="range" min="5" max = "30" step="1" value="15" oninput="changeSp()" id="chSp" title="скорость показа">
+			</span>
+		</div>
+	</form>
+	<canvas height="520" width="1200" id="canva"></canvas>
+</div>
+</body>
+</html>
+
+
