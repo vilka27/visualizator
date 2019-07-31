@@ -1,1 +1,1 @@
-# visualizator
+# Аглоритма слияния двух биномиальных куч (binomial heap)
